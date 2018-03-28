@@ -9,6 +9,7 @@ Header *last;
 
 Header * nextHeader(Header *header);
 Header * prevHeader(Header *header);
+Header * getHeaderFromAddr(void *address);
 
 void  allocator_init() {
 	memory = malloc(g_size);
@@ -35,9 +36,7 @@ void * mem_alloc(size_t size) {
 
 	Header* header = first;
 	// search for first free block
-	while (!header->isFree && header != last) { // first free block
-		if ((header->nextSize - size) > header_size) // that has more space that we need
-			break;
+	while (!header->isFree && header != last && (header->nextSize - size) > header_size) { // first free block that has more space that we need
 		header = nextHeader(header);
 	}
 
@@ -62,7 +61,7 @@ void * mem_alloc(size_t size) {
 		newNextHeader->prevSize = newHeader->nextSize;
 	}
 
-	return header + header_size;
+	return (void *)((size_t)header + header_size);
 }
 
 void * mem_realloc(void *addr, size_t size) {
@@ -72,14 +71,14 @@ void * mem_realloc(void *addr, size_t size) {
 	if (size <= 0)
 		return NULL;
 
-	Header *current_header = (Header *)addr - header_size;
+	Header *current_header = getHeaderFromAddr(addr);
 	
 	int delta_size = current_header->nextSize - size;
 
 	if (delta_size == 0) // no sense to move the block
 		return addr;
 
-	if (delta_size > header_size) {
+	if (delta_size > (int) header_size) {
 		size_t buf = current_header -> nextSize;
 
 		current_header->nextSize = size; // change block size
@@ -88,22 +87,29 @@ void * mem_realloc(void *addr, size_t size) {
 		newHeader->isFree = true;						// that is free 
 		newHeader->prevSize = size;
 		newHeader->nextSize = buf - size - header_size;
+		
+		nextHeader(newHeader)->prevSize = newHeader->nextSize;
 
 		return addr; // address doesn't change if block size is reduced
 	} else { // delete this block and call mem_alloc. If it return Null, repair curr block
-		Header *prev = prevHeader(current_header);
-		Header *next = nextHeader(current_header);
-		prev->nextSize += header_size + current_header->nextSize;
-		next->prevSize += header_size + current_header->prevSize;
 
-		void * result = malloc(size);
+		size_t prevSizeBuf = current_header->prevSize;
+		size_t nextSizeBuf = current_header->nextSize;
+
+		mem_free(addr);
+		//mem_dump("debug - free");
+		void * result = mem_alloc(size);
+		//mem_dump("debug - malloc");
 		if (result != NULL) { // we have allocated memory
 			return result;
 		}
 		else { // if result is NULL - there is no free block
-			// repair curr block
-			prev->nextSize -= header_size + current_header->nextSize; 
-			next->prevSize -= header_size + current_header->prevSize;
+			current_header->isFree = false; // repair curr
+			current_header->prevSize = prevSizeBuf;
+			current_header->nextSize = nextSizeBuf;
+
+			prevHeader(current_header)->nextSize = current_header->prevSize; // repair prev block
+			nextHeader(current_header)->prevSize = current_header->nextSize; // repair next block
 		}
 	}
 
@@ -112,21 +118,21 @@ void * mem_realloc(void *addr, size_t size) {
 
 
 void mem_free(void *addr) {
-	Header *current = (Header *)addr - header_size; // get *Header of current block
+	Header *current = getHeaderFromAddr(addr); // get *Header of current block
 	Header *next = nextHeader(current);
 	Header *prev = prevHeader(current);
 
 	if (next->isFree && prev->isFree) { // megre 3 blocks
 		prev->nextSize += 2 * header_size + current->nextSize + next->nextSize;
 		nextHeader(prev)->prevSize = prev->nextSize;
-	} else if (next->isFree && !prev->isFree) {
+	} else if (next->isFree && !prev->isFree) { // merge next and curr
 		current->isFree = true;
 		current->nextSize += header_size + next->nextSize;
 		nextHeader(current)->prevSize = current->nextSize;
-	} else if(!next->isFree && prev->isFree) {
+	} else if(!next->isFree && prev->isFree) { // merge prev and curr
 		prev->nextSize += header_size + current->nextSize;
 		next->prevSize = prev->nextSize;
-	} else {
+	} else { // mark curr as free
 		current->isFree;
 	}
 }
@@ -145,9 +151,13 @@ Header * prevHeader(Header *header) {
 	return (Header *)((size_t)header - header->prevSize - header_size);;
 }
 
-void mem_dump() {
+Header * getHeaderFromAddr(void *address) {
+	return (Header *)((size_t)address - header_size);
+}
+
+void mem_dump(const char message[]) {
 	Header* current = (Header *) memory;
-	std::cout << "-----Out all Headers-----\n";
+	std::cout << "-----Out all Headers-----(" << message << ")\n";
 	while (current != NULL) {
 		std::cout << "isFree=" << (current->isFree ? "Free" : "Busy") << ", prevSize=" << current->prevSize
 			<< ", nextSize=" << current->nextSize << "\n";

@@ -5,8 +5,8 @@ struct Header {
 };
 
 void  allocator_init();
-void * mem_alloc(size_t size);
-void * mem_realloc(void *addr, size_t size);
-void mem_free(void *addr);
+void * mem_alloc(size_t);
+void * mem_realloc(void *, size_t);
+void mem_free(void *);
 void allocator_free();
-void mem_dump();
+void mem_dump(const char[]);
